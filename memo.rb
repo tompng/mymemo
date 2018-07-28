@@ -27,11 +27,11 @@ module Memo
 
     def decrypt_line(line)
       decrypted = decrypt Base64.strict_decode64(line)
-      decrypted[8..-1]
+      decrypted[8..-1].force_encoding 'utf-8'
     end
 
     def encrypt_line(line)
-      encrypted = encrypt SecureRandom.random_bytes(8) + line
+      encrypted = encrypt SecureRandom.random_bytes(8) + line.force_encoding('ascii-8bit')
       Base64.strict_encode64 encrypted
     end
   end
