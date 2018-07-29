@@ -4,6 +4,7 @@ require 'openssl'
 require 'diff-lcs' # requires gem 'diff-lcs'
 require 'io/console'
 require 'readline'
+require 'fileutils'
 
 module Memo
   class Cipher
@@ -36,20 +37,35 @@ module Memo
       encrypted = encrypt SecureRandom.random_bytes(8) + line.force_encoding('ascii-8bit')
       Base64.strict_encode64 encrypted
     end
+
+    def hex_encrypt(data)
+      encrypt(data).unpack('h*').first
+    end
+
+    def hex_decrypt(data)
+      decrypt [data].pack('h*')
+    end
   end
 
   module Command
     singleton_class.attr_accessor :password, :encrypted_dir, :data_dir
 
     def self.each_file_pair
-      data_files = Dir.glob("#{data_dir}/*").map do |path|
-        path[data_dir.size + 1..-1]
+      cipher = Cipher.new password, 'path'
+      data_files = Dir.glob("#{data_dir}/**/*").map do |path|
+        next if Dir.exist? path
+        data_path = path[data_dir.size + 1..-1]
+        enc_path = data_path.split('/').map(&cipher.method(:hex_encrypt)).join('/')
+        [enc_path, data_path]
       end
-      enc_files = Dir.glob("#{encrypted_dir}/*.enc").map do |path|
-        path[encrypted_dir.size + 1..-5]
+      enc_files = Dir.glob("#{encrypted_dir}/**/*.enc").map do |path|
+        next if Dir.exist? path
+        enc_path = path[encrypted_dir.size + 1..-5]
+        data_path = enc_path.split('/').map(&cipher.method(:hex_decrypt)).join('/')
+        [enc_path, data_path]
       end
-      (data_files + enc_files).uniq.each do |path|
-        yield "#{encrypted_dir}/#{path}.enc", "#{data_dir}/#{path}"
+      (data_files + enc_files).compact.uniq.each do |enc_path, data_path|
+        yield "#{encrypted_dir}/#{enc_path}.enc", "#{data_dir}/#{data_path}"
       end
     end
 
@@ -103,6 +119,7 @@ module Memo
     def self.checkout
       each_file_pair do |enc_file, file|
         if File.exist? enc_file
+          FileUtils.mkdir_p File.dirname(file)
           File.write file, decrypt_file(enc_file)
         else
           File.unlink file
@@ -129,6 +146,7 @@ module Memo
         if File.exist? file
           dict = {}
           decrypt_file enc_file, dict if File.exist? enc_file
+          FileUtils.mkdir_p File.dirname(enc_file)
           File.write enc_file, encrypt_file(file, dict)
         else
           File.unlink enc_file
