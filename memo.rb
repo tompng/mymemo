@@ -118,6 +118,12 @@ module Memo
       end
     end
 
+    def self.clear
+      each_file_pair do |_enc_file, file|
+        File.unlink file if File.exist? file
+      end
+    end
+
     def self.commit
       each_file_pair do |enc_file, file|
         if File.exist? file
@@ -157,7 +163,9 @@ loop do
     Memo::Command.checkout
   when 'grep'
     Memo::Command.grep Regexp.new(cmd.split(' ', 2).last)
+  when 'clear'
+    Memo::Command.clear
   else
-    puts 'commit diff status checkout exit grep'
+    puts 'exit commit diff status checkout grep clear'
   end
 end
