@@ -3,6 +3,8 @@ require 'securerandom'
 require 'openssl'
 require 'diff-lcs' # requires gem 'diff-lcs'
 require 'io/console'
+require 'readline'
+
 module Memo
   class Cipher
     def initialize(password, salt)
@@ -59,7 +61,7 @@ module Memo
         dict[line]&.shift || cipher.encrypt_line(line)
       end
       digest = Digest::SHA256.base64digest salt + encrypted_lines.join
-      digest + "\n" + Base64.strict_encode64(salt) + "\n" + encrypted_lines.join("\n")
+      digest + "\n" + Base64.strict_encode64(salt) + "\n" + encrypted_lines.join("\n") + "\n"
     end
 
     def self.decrypt_file(file, dict = nil)
@@ -130,39 +132,18 @@ module Memo
   end
 end
 
-def readline(prompt: '> ', hide: false)
-  chars = []
-  STDIN.raw do
-    loop do
-      STDOUT.write "\r\e[K#{prompt}" + (hide ? '*' * chars.size : chars.join)
-      c = STDIN.getc
-      case c.ord
-      when 0x03
-        exit
-      when 0x04, 0x0D
-        break
-      when 0x7F
-        chars.pop
-      else
-        chars << c if (32..128).cover? c.ord
-      end
-    end
-  end
-  puts
-  chars.join
-end
-
 Memo::Command.encrypted_dir = '.data'
 Memo::Command.data_dir = 'data'
 [Memo::Command.encrypted_dir, Memo::Command.data_dir].each do |dir|
   Dir.mkdir dir unless Dir.exist? dir
 end
-password = readline prompt: 'password> ', hide: true
+password = STDIN.noecho { Readline.readline 'Password:' }
+puts
 exit if password.empty?
 
 Memo::Command.password = password
 loop do
-  cmd = readline
+  cmd = Readline.readline '> ', true
   case cmd.split(' ').first
   when 'exit'
     exit
@@ -177,6 +158,6 @@ loop do
   when 'grep'
     Memo::Command.grep Regexp.new(cmd.split(' ', 2).last)
   else
-    puts 'commit diff status checkout exit'
+    puts 'commit diff status checkout exit grep'
   end
 end
