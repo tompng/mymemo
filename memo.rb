@@ -50,30 +50,38 @@ module Memo
   module Command
     singleton_class.attr_accessor :password, :encrypted_dir, :data_dir
 
+    def self.path_cipher
+      Cipher.new password, 'path'
+    end
+
     def self.each_file_pair
-      cipher = Cipher.new password, 'path'
       data_files = Dir.glob("#{data_dir}/**/*").map do |path|
         next if Dir.exist? path
-        data_path = path[data_dir.size + 1..-1]
-        enc_path = data_path.split('/').map(&cipher.method(:hex_encrypt)).join('/')
-        [enc_path, data_path]
+        data_path = path[data_dir.size + 1..]
+        [encrypt_path(data_path), data_path]
       end
       enc_files = Dir.glob("#{encrypted_dir}/**/*.enc").map do |path|
         next if Dir.exist? path
-        enc_path = path[encrypted_dir.size + 1..-5]
-        data_path = enc_path.split('/').map(&cipher.method(:hex_decrypt)).join('/')
-        [enc_path, data_path]
+        enc_path = path[encrypted_dir.size + 1..]
+        [enc_path, decrypt_path(enc_path)]
       end
       (data_files + enc_files).compact.uniq.each do |enc_path, data_path|
-        yield "#{encrypted_dir}/#{enc_path}.enc", "#{data_dir}/#{data_path}"
+        yield "#{encrypted_dir}/#{enc_path}", "#{data_dir}/#{data_path}"
       end
     end
 
-    def self.encrypt_file(file, dict = {})
+    def self.encrypt_path(path)
+      path.split('/').map(&path_cipher.method(:hex_encrypt)).join('/') + '.enc'
+    end
+
+    def self.decrypt_path(path)
+      path[...-4].split('/').map(&path_cipher.method(:hex_decrypt)).join('/')
+    end
+
+    def self.encrypt_file_data(data, dict = {})
       salt = dict && dict[:salt] ? dict[:salt] : SecureRandom.random_bytes(32)
       cipher = Cipher.new password, salt
-      lines = File.read(file).lines
-      encrypted_lines = lines.map do |line|
+      encrypted_lines = data.lines.map do |line|
         dict[line]&.shift || cipher.encrypt_line(line)
       end
       digest = Digest::SHA256.base64digest salt + encrypted_lines.join
@@ -141,13 +149,24 @@ module Memo
       end
     end
 
+    def self.add(path, line)
+      data_file = "#{data_dir}/#{path}"
+      enc_file = "#{encrypted_dir}/#{encrypt_path path}"
+      dict = {}
+      data = decrypt_file enc_file, dict if File.exist? enc_file
+      FileUtils.mkdir_p File.dirname(enc_file)
+      data += "\n" if data && data[-1] != "\n"
+      data = "#{data}#{line.gsub(/\n+\z/, '')}\n"
+      File.write enc_file, encrypt_file_data(data, dict)
+    end
+
     def self.commit
       each_file_pair do |enc_file, file|
         if File.exist? file
           dict = {}
           decrypt_file enc_file, dict if File.exist? enc_file
           FileUtils.mkdir_p File.dirname(enc_file)
-          File.write enc_file, encrypt_file(file, dict)
+          File.write enc_file, encrypt_file_data(File.read(file), dict)
         else
           File.unlink enc_file
         end
@@ -167,8 +186,9 @@ exit if password.empty?
 
 Memo::Command.password = password
 loop do
-  cmd = Readline.readline '> ', true
-  case cmd.split(' ').first
+  cmd_line = Readline.readline '> ', true
+  cmd, args = cmd_line.split(' ', 2)
+  case cmd
   when 'exit'
     exit
   when 'commit'
@@ -180,10 +200,12 @@ loop do
   when 'checkout'
     Memo::Command.checkout
   when 'grep'
-    Memo::Command.grep Regexp.new(cmd.split(' ', 2).last)
+    Memo::Command.grep Regexp.new(args)
   when 'clear'
     Memo::Command.clear
+  when 'add'
+    Memo::Command.add(*args.split(' ', 2))
   else
-    puts 'exit commit diff status checkout grep clear'
+    puts 'exit commit diff add status checkout grep clear'
   end
 end
