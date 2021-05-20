@@ -110,7 +110,7 @@ module Memo
         data = File.exist?(file) ? File.read(file) : ''
         lines_was = data_was.lines.map(&:chomp)
         lines = data.lines.map(&:chomp)
-        diff = Diff::LCS.diff(lines_was, lines).flatten
+        diff = Diff::LCS.diff(lines_was, lines).flatten(1)
         next if diff.empty?
         adds = diff.count(&:adding?)
         dels = diff.count(&:deleting?)
